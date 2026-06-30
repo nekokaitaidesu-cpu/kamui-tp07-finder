@@ -307,7 +307,8 @@ TEMPLATE = """<!DOCTYPE html>
   サムネのロフト刻印（LOFT 9 等）が<b>金色</b>なら当たり、赤/白ならハズレです。
   カードをタップで商品ページへ。<br>
   ゴルフドゥは自動巡回が未対応のため
-  <a href="{golfdo}" target="_blank" rel="noopener">▶ ゴルフドゥで手動検索</a>。
+  <a href="{golfdo}" target="_blank" rel="noopener">▶ ゴルフドゥで手動検索</a>。<br>
+  <a href="contact_sheet.jpg" target="_blank" rel="noopener">▶ 全候補を1枚で見る（ピンチズーム可）</a>
 </p>
 <div class="grid">
 {cards}
