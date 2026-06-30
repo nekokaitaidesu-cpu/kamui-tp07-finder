@@ -17,6 +17,7 @@ https://nekokaitaidesu-cpu.github.io/kamui-tp07-finder/
    - **ヤフオク 出品中**（買える）
    - **ヤフオク落札／Yahoo!フリマ売却**（相場の参考）
    - **ラクマ**（fril.jp、出品中＋売却済、requestsで取得）
+   - **メルカリ**（Playwrightで描画＋仮想スクロールを逐次収集。「ガスのみ・爆音・金属バット」の本命がよく出る）
 2. タイトルから **TP-07 だけ**を抽出（03/05 などは除外）
 3. 判定：フリマ/オクは出品者が明記するので「ガスのみ/爆音/金→**金ロフト濃厚★**」「発泡/NITRO→**ハズレ**」を自動振り分け。中古ショップは無記載が多く「**要確認**」＝写真目視。
 4. 前回スキャンからの **新着を検知**（`state.json` に既知IDを記録）
@@ -54,5 +55,5 @@ schtasks /create /tn "KamuiTP07Finder" /sc daily /st 07:30 ^
 
 ## メモ / 今後
 - **ゴルフドゥ対応済**：フリーワード検索は `/club/model?search=` → `/club/list/{id}`（NaviPlus系UI）。`/supplies/list` 側にはフリーワード検索が無くカムイはメーカー一覧にも無いため、Playwright で実描画して取得（`golfdo.py`）。CI でも `playwright install chromium` 済。
-- **メルカリ**は対策が強く未対応。ヤフオク／Yahoo!フリマ／ゴルフドゥ／ゴルフパートナーはカバー済み。
+- **メルカリ対応済**（`mercari.py`、Playwright）。`li[data-testid=item-cell]` を仮想スクロールしながら逐次収集。本命の「ガスのみ・爆音・金属バット」TP-07 が一番出る。※datacenter IP だと bot 検知でスキップする可能性あり（ローカル＝住宅IPなら安定）。6ソース全カバー。
 - 追加ソースも同じ item 辞書（`source`/`status`/`loft_code`）に合わせれば差し込める。

@@ -308,13 +308,19 @@ def collect() -> list[dict]:
         for rec in _rakuma(sess, kw):
             raw.setdefault(rec["id"], rec)
         time.sleep(1.0)
-    # ⑤ ゴルフドゥ（Playwright描画。未導入/失敗時は静かにスキップ）
+    # ⑤ ゴルフドゥ＋⑥ メルカリ（Playwright描画。未導入/失敗時は静かにスキップ）
     try:
         import golfdo
         for rec in golfdo.collect():
             raw.setdefault(rec["id"], rec)
     except Exception as e:
         print(f"  ゴルフドゥ: スキップ（{type(e).__name__}: {e}）")
+    try:
+        import mercari
+        for rec in mercari.collect():
+            raw.setdefault(rec["id"], rec)
+    except Exception as e:
+        print(f"  メルカリ: スキップ（{type(e).__name__}: {e}）")
     tp07 = [r for r in raw.values()
             if is_tp07(r["title"]) and not is_non_driver(r["title"])]
     result: list[dict] = []
@@ -467,7 +473,7 @@ TEMPLATE = """<!DOCTYPE html>
 </style></head><body>
 <header>
   <h1>🌀 カムイ TP-07 金ロフト・ガスのみ ハンター</h1>
-  <div class="sub">最終スキャン {now}（JST）・GP／ゴルフドゥ／ヤフオク／Yahoo!フリマ／ラクマ</div>
+  <div class="sub">最終スキャン {now}（JST）・GP／ゴルフドゥ／ヤフオク／Yahoo!フリマ／ラクマ／メルカリ</div>
   <div class="stats">
     <div class="stat">候補 <b>{total}</b></div>
     <div class="stat">🟢買える <b>{buyable}</b></div>
