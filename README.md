@@ -11,8 +11,9 @@ https://nekokaitaidesu-cpu.github.io/kamui-tp07-finder/
 
 ## 仕組み
 
-1. 複数ソースを巡回：
+1. 複数ソースを巡回（ドライバーのみ。FW/UTは除外）：
    - **ゴルフパートナー**中古（「タイフーン」「カムイ」全ページ）＝写真目視前提
+   - **ゴルフドゥ**中古（Playwrightで `/club/model`→`/club/list` を描画取得）
    - **ヤフオク 出品中**（買える）
    - **ヤフオク落札／Yahoo!フリマ売却**（相場の参考）
 2. タイトルから **TP-07 だけ**を抽出（03/05 などは除外）
@@ -38,7 +39,8 @@ python finder.py
 実行後、`index.html` をブラウザで開く。新着があればコンソールに
 `★★ 新着 N 件あり！★★` と出て、ページ上部に ⭐NEW バッジが付く。
 
-依存: `requests` `beautifulsoup4`（`pillow` があれば一覧画像も生成）
+依存: `pip install -r requirements.txt` ＋ 初回のみ `python -m playwright install chromium`
+（Playwright未導入でもゴルフドゥをスキップして他ソースは動く）
 
 ## 毎日自動でスキャンする（任意）
 
@@ -50,6 +52,6 @@ schtasks /create /tn "KamuiTP07Finder" /sc daily /st 07:30 ^
 ```
 
 ## メモ / 今後
-- **ゴルフドゥ**は商品リストが Vue/Laravel の XHR（ボット保護＋CDNキャッシュで応答が不安定）。安定取得には Playwright 等の実ブラウザ自動化が必要なため v1 では自動巡回せず、ページ上部に手動検索リンクを設置。
-- **メルカリ**は対策が強く未対応（v1）。ヤフオク／Yahoo!フリマはカバー済み。
+- **ゴルフドゥ対応済**：フリーワード検索は `/club/model?search=` → `/club/list/{id}`（NaviPlus系UI）。`/supplies/list` 側にはフリーワード検索が無くカムイはメーカー一覧にも無いため、Playwright で実描画して取得（`golfdo.py`）。CI でも `playwright install chromium` 済。
+- **メルカリ**は対策が強く未対応。ヤフオク／Yahoo!フリマ／ゴルフドゥ／ゴルフパートナーはカバー済み。
 - 追加ソースも同じ item 辞書（`source`/`status`/`loft_code`）に合わせれば差し込める。

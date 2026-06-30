@@ -218,6 +218,11 @@ def is_tp07(title: str) -> bool:
     return ("typhoonpro07" in c) or ("tp07" in c)
 
 
+def is_non_driver(title: str) -> bool:
+    """FW/UT/アイアン等を除外（探しているのはドライバーの金ロフト）。"""
+    return bool(re.search(r"ＦＷ|ＵＴ|フェアウェイ|ユーティリ|アイアン|ウェッジ|ハイブリッド|[357]Ｗ|[0-9]+UT", title))
+
+
 def classify_loft(rec: dict) -> tuple[str, str]:
     """(コード, 表示ラベル) を返す。コード: gold/foam/red/white/check。
 
@@ -254,7 +259,15 @@ def collect() -> list[dict]:
         for rec in _yahoo_closed(sess, kw):
             raw.setdefault(rec["id"], rec)
         time.sleep(1.0)
-    tp07 = [r for r in raw.values() if is_tp07(r["title"])]
+    # ④ ゴルフドゥ（Playwright描画。未導入/失敗時は静かにスキップ）
+    try:
+        import golfdo
+        for rec in golfdo.collect():
+            raw.setdefault(rec["id"], rec)
+    except Exception as e:
+        print(f"  ゴルフドゥ: スキップ（{type(e).__name__}: {e}）")
+    tp07 = [r for r in raw.values()
+            if is_tp07(r["title"]) and not is_non_driver(r["title"])]
     result: list[dict] = []
     for r in tp07:
         code, label = classify_loft(r)
@@ -405,7 +418,7 @@ TEMPLATE = """<!DOCTYPE html>
 </style></head><body>
 <header>
   <h1>🌀 カムイ TP-07 金ロフト・ガスのみ ハンター</h1>
-  <div class="sub">最終スキャン {now}（JST）・ゴルフパートナー中古＋ヤフオク／Yahoo!フリマ</div>
+  <div class="sub">最終スキャン {now}（JST）・ゴルフパートナー／ゴルフドゥ／ヤフオク／Yahoo!フリマ</div>
   <div class="stats">
     <div class="stat">候補 <b>{total}</b></div>
     <div class="stat">🟢買える <b>{buyable}</b></div>
@@ -417,11 +430,11 @@ TEMPLATE = """<!DOCTYPE html>
   <b>🟢買える</b>＝出品中（ゴルフパートナー／ヤフオク）。<b>売却済</b>＝相場の参考。<br>
   フリマ／オクは出品者が「ガスのみ／発泡／爆音」を明記するので
   <b>金ロフト・ガスのみ濃厚 ★</b>か<b>発泡（ハズレ）</b>を自動判定。
-  中古ショップは無記載が多く<b>「要確認」</b>＝サムネのロフト刻印（LOFT 9 等）が
-  <b>金色</b>なら当たり、赤/白ならハズレ。カードをタップで商品ページへ。<br>
-  ゴルフドゥは自動巡回が未対応のため
-  <a href="{golfdo}" target="_blank" rel="noopener">▶ ゴルフドゥで手動検索</a>。<br>
-  <a href="contact_sheet.jpg" target="_blank" rel="noopener">▶ 全候補を1枚で見る（ピンチズーム可）</a>
+  中古ショップ（ゴルフパートナー／ゴルフドゥ）は無記載が多く<b>「要確認」</b>＝
+  サムネのロフト刻印（LOFT 9 等）が<b>金色</b>なら当たり、赤/白ならハズレ。
+  カードをタップで商品ページへ。<br>
+  <a href="contact_sheet.jpg" target="_blank" rel="noopener">▶ 要確認の全候補を1枚で見る（ピンチズーム可）</a>
+  ／<a href="{golfdo}" target="_blank" rel="noopener">ゴルフドゥで手動検索</a>
 </p>
 <div class="grid">
 {cards}

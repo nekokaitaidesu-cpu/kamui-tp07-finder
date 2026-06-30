@@ -25,7 +25,9 @@ jobs:
           python-version: "3.12"
 
       - name: install deps
-        run: pip install requests beautifulsoup4 pillow
+        run: |
+          pip install requests beautifulsoup4 pillow playwright
+          python -m playwright install --with-deps chromium
 
       - name: run finder
         run: python finder.py
