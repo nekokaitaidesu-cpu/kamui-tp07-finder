@@ -120,7 +120,90 @@ def _parse_card(card) -> dict | None:
         "img": f"{GP_BASE}/img/goods/L/item{gid}p1.jpg",
         "img2": f"{GP_BASE}/img/goods/S/item{gid}p2.jpg",
         "source": "ゴルフパートナー",
+        "status": "active",   # 出品中（買える）
     }
+
+
+# --------------------------------------------------------------- Yahoo ヤフオク -
+
+def _yahoo_active(sess: requests.Session, keyword: str, per: int = 100) -> list[dict]:
+    """ヤフオク出品中（買える）。検索結果HTMLの li.Product を解析。"""
+    url = ("https://auctions.yahoo.co.jp/search/search?p="
+           + urllib.parse.quote(keyword) + f"&n={per}")
+    try:
+        r = sess.get(url, timeout=25)
+    except requests.RequestException:
+        return []
+    if r.status_code != 200:
+        return []
+    soup = BeautifulSoup(r.text, "html.parser")
+    out: list[dict] = []
+    for p in soup.select("li.Product"):
+        a = p.select_one(".Product__titleLink") or p.select_one(".Product__title a")
+        if not a:
+            continue
+        href = a.get("href", "")
+        m = re.search(r"/auction/([\w-]+)", href)
+        if not m:
+            continue
+        aid = m.group(1)
+        price_el = p.select_one(".Product__price .Product__priceValue") or p.select_one(".Product__price")
+        digits = "".join(ch for ch in (price_el.get_text() if price_el else "") if ch.isdigit())
+        img_el = p.select_one(".Product__imageData") or p.select_one("img")
+        img = (img_el.get("src") or img_el.get("data-auctionimg") or "") if img_el else ""
+        out.append({
+            "id": f"y{aid}",
+            "title": unicodedata.normalize("NFKC", a.get_text(strip=True)).strip(),
+            "price": int(digits) if digits else None,
+            "cond": "", "year": "", "shaft": "",
+            "url": href if href.startswith("http") else f"https://auctions.yahoo.co.jp{href}",
+            "img": img, "img2": "",
+            "source": "ヤフオク",
+            "status": "active",
+        })
+    return out
+
+
+def _yahoo_closed(sess: requests.Session, keyword: str, per: int = 100) -> list[dict]:
+    """落札相場（売却済・参考）。ヤフオク落札＋Yahoo!フリマ売却を含む。
+
+    結果は <script id="__NEXT_DATA__"> にJSON埋め込み。
+    """
+    url = ("https://auctions.yahoo.co.jp/closedsearch/closedsearch?p="
+           + urllib.parse.quote(keyword) + f"&n={per}")
+    try:
+        r = sess.get(url, timeout=25)
+    except requests.RequestException:
+        return []
+    soup = BeautifulSoup(r.text, "html.parser")
+    tag = soup.find("script", id="__NEXT_DATA__")
+    if not tag or not tag.string:
+        return []
+    try:
+        data = json.loads(tag.string)
+        items = data["props"]["pageProps"]["initialState"]["search"]["items"]["listing"]["items"]
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return []
+    out: list[dict] = []
+    for raw in items:
+        title = raw.get("title")
+        price = raw.get("price")
+        if not title or not price:
+            continue
+        aid = raw.get("auctionId", "")
+        flea = bool(raw.get("isFleamarketItem"))
+        end = (raw.get("endTime") or "")[:10]
+        out.append({
+            "id": f"yc{aid}",
+            "title": unicodedata.normalize("NFKC", title).strip(),
+            "price": int(price),
+            "cond": end, "year": "", "shaft": "",
+            "url": f"https://auctions.yahoo.co.jp/jp/auction/{aid}" if aid else "",
+            "img": raw.get("imageUrl", "") or "", "img2": "",
+            "source": "Yahoo!フリマ売却" if flea else "ヤフオク落札",
+            "status": "sold",
+        })
+    return out
 
 
 # ------------------------------------------------------------ classify TP-07 -
@@ -136,15 +219,21 @@ def is_tp07(title: str) -> bool:
 
 
 def classify_loft(rec: dict) -> tuple[str, str]:
-    """(コード, 表示ラベル) を返す。コード: gold/foam/red/white/check。"""
+    """(コード, 表示ラベル) を返す。コード: gold/foam/red/white/check。
+
+    フリマ/オクは出品者が「ガスのみ」「発泡」「爆音」を明記するため
+    キーワードで当たり/ハズレを高精度に振り分けられる。
+    中古ショップ(タイトル無記載)は check に落ちて写真目視へ回す。
+    """
     t = rec["title"] + " " + rec.get("shaft", "")
-    if re.search(r"発泡", t):
-        return "foam", "発泡（ハズレ濃厚）"
-    if re.search(r"金|ゴールド|gold", t, re.I):
-        return "gold", "金ロフト濃厚 ★"
-    if re.search(r"赤|レッド|red", t, re.I):
+    # 発泡・窒素ガス充填系はハズレ（「発泡+ガス」両記載でもこちら優先）
+    if re.search(r"発泡|発砲|nitro|ニトロ", t, re.I):
+        return "foam", "発泡/NITRO（ハズレ）"
+    if re.search(r"金ロフト|ロフト金|ゴールド|gold|ガスのみ|爆音", t, re.I):
+        return "gold", "金ロフト・ガスのみ濃厚 ★"
+    if re.search(r"赤ロフト|レッド", t, re.I):
         return "red", "赤ロフト（ハズレ）"
-    if re.search(r"白|ホワイト|white", t, re.I):
+    if re.search(r"白ロフト|ホワイト", t, re.I):
         return "white", "白ロフト（ハズレ）"
     return "check", "要確認（写真で目視）"
 
@@ -154,15 +243,28 @@ def classify_loft(rec: dict) -> tuple[str, str]:
 def collect() -> list[dict]:
     sess = _session()
     raw: dict[str, dict] = {}
+    # ① ゴルフパートナー中古（写真目視前提）
     for kw in ("タイフーン", "カムイ"):
         for rec in _gp_search(sess, kw):
             raw.setdefault(rec["id"], rec)
+    # ② ヤフオク 出品中（買える）＋ ③ 落札相場（売却済・参考、フリマ含む）
+    for kw in ("カムイ TP-07", "カムイ タイフーン"):
+        for rec in _yahoo_active(sess, kw):
+            raw.setdefault(rec["id"], rec)
+        for rec in _yahoo_closed(sess, kw):
+            raw.setdefault(rec["id"], rec)
+        time.sleep(1.0)
     tp07 = [r for r in raw.values() if is_tp07(r["title"])]
+    result: list[dict] = []
     for r in tp07:
         code, label = classify_loft(r)
         r["loft_code"] = code
         r["loft_label"] = label
-    return tp07
+        # 売却済のハズレ(発泡/赤/白)はノイズなので除外。出品中は全部残す。
+        if r["status"] == "sold" and code in ("foam", "red", "white"):
+            continue
+        result.append(r)
+    return result
 
 
 def load_state() -> dict:
@@ -204,10 +306,11 @@ CODE_CLASS = {"gold": "gold", "check": "check", "white": "miss",
 
 
 def render(items: list[dict], new_count: int) -> str:
-    # 並び: 新着 → 金ロフト濃厚/要確認 → ハズレ。各内で価格安い順。
+    # 並び: 新着 → 出品中(買える)優先 → 金ロフト濃厚/要確認 → ハズレ。各内で価格安い順。
     items = sorted(
         items,
         key=lambda r: (not r.get("is_new"),
+                       r["status"] != "active",
                        CODE_ORDER.get(r["loft_code"], 5),
                        r["price"] if r["price"] is not None else 10**9),
     )
@@ -215,19 +318,24 @@ def render(items: list[dict], new_count: int) -> str:
     cards = []
     for r in items:
         badge_new = '<span class="b new">⭐NEW</span>' if r.get("is_new") else ""
+        sold = r["status"] == "sold"
+        badge_status = ('<span class="b sold">売却済</span>' if sold
+                        else '<span class="b buy">買える</span>')
         cls = CODE_CLASS.get(r["loft_code"], "check")
         price = f"¥{r['price']:,}" if r["price"] is not None else "—"
         meta = " / ".join(x for x in [
-            f"状態{r['cond']}" if r["cond"] else "",
+            r["source"],
+            f"状態{r['cond']}" if r["cond"] and r["source"] == "ゴルフパートナー" else "",
+            r["cond"] if r["cond"] and sold else "",   # 売却済は終了日
             f"{r['year']}年式" if r["year"] else "",
         ] if x)
         shaft = html.escape(r["shaft"]) if r["shaft"] else ""
         cards.append(f"""
-      <a class="card {cls}" href="{html.escape(r['url'])}" target="_blank" rel="noopener">
+      <a class="card {cls}{' soldcard' if sold else ''}" href="{html.escape(r['url'])}" target="_blank" rel="noopener">
         <div class="imgwrap">
           <img loading="lazy" src="{html.escape(r['img'])}" alt=""
                onerror="this.style.opacity=.15;this.alt='画像なし'">
-          {badge_new}
+          {badge_new}{badge_status}
         </div>
         <div class="body">
           <div class="title">{html.escape(r['title'])}</div>
@@ -239,9 +347,9 @@ def render(items: list[dict], new_count: int) -> str:
       </a>""")
 
     gold = sum(1 for r in items if r["loft_code"] == "gold")
-    check = sum(1 for r in items if r["loft_code"] == "check")
+    buyable = sum(1 for r in items if r["status"] == "active")
     return TEMPLATE.format(
-        now=now, total=len(items), new=new_count, gold=gold, check=check,
+        now=now, total=len(items), new=new_count, gold=gold, buyable=buyable,
         cards="\n".join(cards) or '<p class="empty">該当なし。次回スキャンをお待ちください。</p>',
         golfdo=html.escape(GOLFDO_SEARCH),
     )
@@ -276,8 +384,11 @@ TEMPLATE = """<!DOCTYPE html>
   .card.gold{{border-color:#d4af37;box-shadow:0 0 0 1px #d4af37 inset}}
   .imgwrap{{position:relative;aspect-ratio:1/1;background:#0d1117}}
   .imgwrap img{{width:100%;height:100%;object-fit:cover}}
-  .b.new{{position:absolute;top:8px;left:8px;background:#f85149;color:#fff;
-    font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px}}
+  .b{{position:absolute;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px}}
+  .b.new{{top:8px;left:8px;background:#f85149;color:#fff}}
+  .b.buy{{top:8px;right:8px;background:#238636;color:#fff}}
+  .b.sold{{top:8px;right:8px;background:#6e7681;color:#fff}}
+  .soldcard{{opacity:.6}}
   .body{{padding:10px 12px 12px}}
   .title{{font-size:13px;font-weight:600;line-height:1.4;margin-bottom:6px}}
   .loft{{display:inline-block;font-size:11px;padding:3px 8px;border-radius:6px;
@@ -294,18 +405,20 @@ TEMPLATE = """<!DOCTYPE html>
 </style></head><body>
 <header>
   <h1>🌀 カムイ TP-07 金ロフト・ガスのみ ハンター</h1>
-  <div class="sub">最終スキャン {now}（JST）・ゴルフパートナー中古</div>
+  <div class="sub">最終スキャン {now}（JST）・ゴルフパートナー中古＋ヤフオク／Yahoo!フリマ</div>
   <div class="stats">
     <div class="stat">候補 <b>{total}</b></div>
+    <div class="stat">🟢買える <b>{buyable}</b></div>
     <div class="stat">⭐新着 <b>{new}</b></div>
     <div class="stat">金ロフト濃厚 <b>{gold}</b></div>
-    <div class="stat">要確認 <b>{check}</b></div>
   </div>
 </header>
 <p class="note">
-  ★ショップ表記に「金/ゴールド」が無い個体は<b>「要確認」</b>として写真付きで掲載しています。
-  サムネのロフト刻印（LOFT 9 等）が<b>金色</b>なら当たり、赤/白ならハズレです。
-  カードをタップで商品ページへ。<br>
+  <b>🟢買える</b>＝出品中（ゴルフパートナー／ヤフオク）。<b>売却済</b>＝相場の参考。<br>
+  フリマ／オクは出品者が「ガスのみ／発泡／爆音」を明記するので
+  <b>金ロフト・ガスのみ濃厚 ★</b>か<b>発泡（ハズレ）</b>を自動判定。
+  中古ショップは無記載が多く<b>「要確認」</b>＝サムネのロフト刻印（LOFT 9 等）が
+  <b>金色</b>なら当たり、赤/白ならハズレ。カードをタップで商品ページへ。<br>
   ゴルフドゥは自動巡回が未対応のため
   <a href="{golfdo}" target="_blank" rel="noopener">▶ ゴルフドゥで手動検索</a>。<br>
   <a href="contact_sheet.jpg" target="_blank" rel="noopener">▶ 全候補を1枚で見る（ピンチズーム可）</a>
@@ -328,7 +441,9 @@ def build_contact_sheet(items: list[dict], path: str, cols: int = 6, th: int = 2
         from PIL import Image, ImageDraw
     except ImportError:
         return False
-    ordered = sorted(items, key=lambda r: (r["price"] if r["price"] is not None else 10**9))
+    # 写真目視が要る「要確認(check)」だけを並べる＝金ロフト判定ボード
+    check = [r for r in items if r["loft_code"] == "check"]
+    ordered = sorted(check, key=lambda r: (r["price"] if r["price"] is not None else 10**9))
     if not ordered:
         return False
     sess = _session()
