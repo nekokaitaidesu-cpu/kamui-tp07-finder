@@ -243,6 +243,52 @@ def classify_loft(rec: dict) -> tuple[str, str]:
     return "check", "要確認（写真で目視）"
 
 
+# ---------------------------------------------------------------- ラクマ -----
+
+def _rakuma(sess: requests.Session, keyword: str, pages: int = 2) -> list[dict]:
+    """ラクマ(fril.jp)。商品カード `.item-box` のデータ属性から取得（requestsで可）。"""
+    out: list[dict] = []
+    for pg in range(1, pages + 1):
+        url = ("https://fril.jp/s?query=" + urllib.parse.quote(keyword)
+               + (f"&page={pg}" if pg > 1 else ""))
+        try:
+            r = sess.get(url, timeout=25)
+        except requests.RequestException:
+            break
+        if r.status_code != 200:
+            break
+        soup = BeautifulSoup(r.text, "html.parser")
+        anchors = soup.select("a.link_search_image")
+        if not anchors:
+            break
+        for a in anchors:
+            name = a.get("data-rat-item_name") or ""
+            href = a.get("href", "")
+            if not name or not href:
+                continue
+            digits = "".join(ch for ch in (a.get("data-rat-price") or "") if ch.isdigit())
+            box = a.find_parent(class_="item-box")
+            sold = bool(box and (
+                "sold" in (box.get("class") or [])
+                or box.select_one('[class*=sold]')))
+            img = ""
+            if box:
+                im = box.select_one("img")
+                if im:
+                    img = im.get("data-original") or im.get("src") or ""
+            out.append({
+                "id": "rk" + href.rstrip("/").split("/")[-1],
+                "title": unicodedata.normalize("NFKC", name).strip(),
+                "price": int(digits) if digits else None,
+                "cond": "", "year": "", "shaft": "",
+                "url": href,
+                "img": img, "img2": "",
+                "source": "ラクマ",
+                "status": "sold" if sold else "active",
+            })
+    return out
+
+
 # ----------------------------------------------------------------- pipeline --
 
 def collect() -> list[dict]:
@@ -258,8 +304,11 @@ def collect() -> list[dict]:
             raw.setdefault(rec["id"], rec)
         for rec in _yahoo_closed(sess, kw):
             raw.setdefault(rec["id"], rec)
+        # ④ ラクマ（fril.jp、requestsで可）
+        for rec in _rakuma(sess, kw):
+            raw.setdefault(rec["id"], rec)
         time.sleep(1.0)
-    # ④ ゴルフドゥ（Playwright描画。未導入/失敗時は静かにスキップ）
+    # ⑤ ゴルフドゥ（Playwright描画。未導入/失敗時は静かにスキップ）
     try:
         import golfdo
         for rec in golfdo.collect():
@@ -418,7 +467,7 @@ TEMPLATE = """<!DOCTYPE html>
 </style></head><body>
 <header>
   <h1>🌀 カムイ TP-07 金ロフト・ガスのみ ハンター</h1>
-  <div class="sub">最終スキャン {now}（JST）・ゴルフパートナー／ゴルフドゥ／ヤフオク／Yahoo!フリマ</div>
+  <div class="sub">最終スキャン {now}（JST）・GP／ゴルフドゥ／ヤフオク／Yahoo!フリマ／ラクマ</div>
   <div class="stats">
     <div class="stat">候補 <b>{total}</b></div>
     <div class="stat">🟢買える <b>{buyable}</b></div>
