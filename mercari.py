@@ -73,17 +73,31 @@ def collect(headless: bool = True) -> list[dict]:
         return []
     items: dict[str, dict] = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
-        ctx = browser.new_context(locale="ja-JP", user_agent=UA)
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"])
+        ctx = browser.new_context(
+            locale="ja-JP", user_agent=UA,
+            viewport={"width": 1280, "height": 1800})
+        # webdriver フラグを隠して headless 検知を緩和
+        ctx.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
         page = ctx.new_page()
         try:
             for search in SEARCHES:
                 url = (f"{MERCARI}/search?keyword=" + urllib.parse.quote(search)
                        + "&order=desc&sort=created_time")
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                try:
-                    page.wait_for_selector("li[data-testid=item-cell]", timeout=30000)
-                except Exception:
+                # 取得できないことがあるので最大2回試行
+                ok = False
+                for attempt in range(2):
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        page.wait_for_selector("li[data-testid=item-cell]", timeout=30000)
+                        ok = True
+                        break
+                    except Exception:
+                        page.wait_for_timeout(2000)
+                if not ok:
                     continue
                 # メルカリは仮想スクロール（画面内の数件だけ href が埋まる）。
                 # 少しずつスクロールしながら毎回パースして蓄積する。
