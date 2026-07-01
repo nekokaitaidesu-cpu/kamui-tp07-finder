@@ -1,0 +1,30 @@
+name: rakuten-test
+# クラウド(datacenter IP)から楽天スクレイプが通るかの一時検証。確認後に削除する。
+on:
+  workflow_dispatch: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests beautifulsoup4
+      - name: probe rakuten + yahoo-closed + golfpartner
+        run: |
+          python - <<'PY'
+          import urllib.parse, requests
+          from bs4 import BeautifulSoup
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          s=requests.Session(); s.headers.update({"User-Agent":UA,"Accept-Language":"ja"})
+          kw="テーラーメイド ステルス ドライバー"
+          # Rakuten
+          u="https://search.rakuten.co.jp/search/mall/"+urllib.parse.quote(kw)+"/"
+          r=s.get(u,timeout=25)
+          soup=BeautifulSoup(r.text,"html.parser")
+          items=soup.select("div.searchresultitem")
+          priced=[i for i in items if i.get("data-track-price")]
+          print(f"[RAKUTEN] status={r.status_code} len={len(r.text)} items={len(items)} priced={len(priced)}")
+          for it in priced[:3]:
+              print("   ¥", it.get("data-track-price"))
+          PY
