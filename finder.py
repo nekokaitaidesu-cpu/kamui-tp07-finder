@@ -536,6 +536,42 @@ def build_contact_sheet(items: list[dict], path: str, cols: int = 6, th: int = 2
     return True
 
 
+def notify_line(items: list[dict]) -> None:
+    """「新着 × 買える × 金ロフト★」だけを LINE にプッシュ通知。
+
+    環境変数 LINE_CHANNEL_TOKEN / LINE_USER_ID があるときだけ動く（無ければ静かにスキップ）。
+    LINE Messaging API の push を使用（LINE Notify は2025年終了のため）。
+    """
+    token = os.environ.get("LINE_CHANNEL_TOKEN", "").strip()
+    user = os.environ.get("LINE_USER_ID", "").strip()
+    alerts = [i for i in items
+              if i.get("is_new") and i["status"] == "active" and i["loft_code"] == "gold"]
+    if not alerts:
+        return
+    if not token or not user:
+        print(f"  LINE通知: 対象{len(alerts)}件あるが未設定（LINE_CHANNEL_TOKEN/LINE_USER_ID）")
+        return
+    lines = ["🚨買える金ロフトTP-07が出ました！"]
+    for a in alerts[:8]:
+        price = f"¥{a['price']:,}" if a["price"] is not None else "価格不明"
+        lines.append(f"\n▼{a['source']}｜{price}\n{a['title'][:40]}\n{a['url']}")
+    text = "\n".join(lines)[:4900]
+    try:
+        r = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            json={"to": user, "messages": [{"type": "text", "text": text}]},
+            timeout=20,
+        )
+        if r.status_code == 200:
+            print(f"  LINE通知: 送信OK（{len(alerts)}件）")
+        else:
+            print(f"  LINE通知: 失敗 {r.status_code} {r.text[:120]}")
+    except requests.RequestException as e:
+        print(f"  LINE通知: 例外 {e}")
+
+
 def publish(new_count: int) -> None:
     """生成物を GitHub Pages 用リポジトリに push（外出先からスマホで閲覧）。"""
     stamp = jst_now().strftime("%Y-%m-%d %H:%M")
@@ -575,6 +611,7 @@ def main() -> None:
     print(f"  生成: {OUT_PATH}")
     if new_count:
         print(f"  ★★ 新着 {new_count} 件あり！ページを確認してください ★★")
+    notify_line(items)
     if do_publish:
         publish(new_count)
 

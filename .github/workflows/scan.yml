@@ -30,6 +30,9 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: run finder
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: python finder.py
 
       - name: commit & push if changed
