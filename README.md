@@ -44,6 +44,10 @@ python finder.py
 依存: `pip install -r requirements.txt` ＋ 初回のみ `python -m playwright install chromium`
 （Playwright未導入でもゴルフドゥをスキップして他ソースは動く）
 
+## 📱 LINE通知（買える金ロフトが出た瞬間に届く）
+「新着 × 🟢買える × 金ロフト★」だけを LINE にプッシュ。設定は **[LINE_SETUP.md](LINE_SETUP.md)** 参照。
+GitHub Secrets に `LINE_CHANNEL_TOKEN` / `LINE_USER_ID` を入れるだけで有効化（無料枠で十分）。
+
 ## 毎日自動でスキャンする（任意）
 
 Windows タスクスケジューラに登録すると放置で監視できる：
