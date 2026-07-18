@@ -350,16 +350,37 @@ def save_state(state: dict) -> None:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
+NEW_WINDOW_HOURS = 24  # NEWバッジを維持する時間（6時間ごとスキャン×4回分）
+
+
+def _hours_since(stamp: str, now: dt.datetime) -> float:
+    """seen 記録からの経過時間。旧形式（日付のみ）はその日の0時扱い。"""
+    try:
+        t = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        t = dt.datetime.strptime(stamp, "%Y-%m-%d")
+    return (now - t.replace(tzinfo=now.tzinfo)).total_seconds() / 3600
+
+
 def mark_new(items: list[dict], state: dict, seeding: bool) -> int:
-    """新着を判定。seeding=True（初回）の時は全件を既知登録するが新着扱いしない。"""
+    """新着を判定。seeding=True（初回）の時は全件を既知登録するが新着扱いしない。
+
+    is_fresh: 今回のスキャンで初めて見つかった（LINE通知はこちら。重複通知防止）
+    is_new:   初回発見から NEW_WINDOW_HOURS 以内（ページのNEWバッジ・並び順用）
+    """
     seen = state.setdefault("seen", {})
-    today = jst_now().strftime("%Y-%m-%d")
+    now = jst_now()
+    stamp = now.strftime("%Y-%m-%dT%H:%M")
+    if seeding:
+        # 初回登録分は即NEW切れの時刻で記録し、以降のスキャンでもNEW扱いしない
+        stamp = (now - dt.timedelta(hours=NEW_WINDOW_HOURS)).strftime("%Y-%m-%dT%H:%M")
     new_count = 0
     for it in items:
         first = it["id"] not in seen
         if first:
-            seen[it["id"]] = today
-        it["is_new"] = first and not seeding
+            seen[it["id"]] = stamp
+        it["is_fresh"] = first and not seeding
+        it["is_new"] = _hours_since(seen[it["id"]], now) < NEW_WINDOW_HOURS
         if it["is_new"]:
             new_count += 1
         it["first_seen"] = seen[it["id"]]
@@ -545,7 +566,7 @@ def notify_line(items: list[dict]) -> None:
     token = os.environ.get("LINE_CHANNEL_TOKEN", "").strip()
     user = os.environ.get("LINE_USER_ID", "").strip()
     alerts = [i for i in items
-              if i.get("is_new") and i["status"] == "active" and i["loft_code"] == "gold"]
+              if i.get("is_fresh") and i["status"] == "active" and i["loft_code"] == "gold"]
     if not alerts:
         return
     if not token or not user:

@@ -40,6 +40,7 @@ python finder.py
 
 実行後、`index.html` をブラウザで開く。新着があればコンソールに
 `★★ 新着 N 件あり！★★` と出て、ページ上部に ⭐NEW バッジが付く。
+⭐NEW バッジは初回発見から **24時間**（6時間ごとスキャン×4回分）表示され続ける。
 
 依存: `pip install -r requirements.txt` ＋ 初回のみ `python -m playwright install chromium`
 （Playwright未導入でもゴルフドゥをスキップして他ソースは動く）
